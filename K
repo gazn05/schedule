@@ -1,0 +1,647 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no, viewport-fit=cover">
+    <title>首爾旅伴 🇰🇷 2026 終極整合旗艦版</title>
+    
+    <!-- PWA & Mobile Meta -->
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="default">
+    <link rel="apple-touch-icon" href="https://cdn-icons-png.flaticon.com/512/826/826070.png">
+    <link rel="manifest" href="data:application/manifest+json,{'name':'首爾旅伴2026','short_name':'首爾旅伴','start_url':'.','display':'standalone','background_color':'#F7F4EB','theme_color':'#BA8E7A'}">
+
+    <script src="https://unpkg.com/vue@3/dist/vue.global.js"></script>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Quicksand:wght@400;700&display=swap" rel="stylesheet">
+    <script src="https://unpkg.com/lucide@latest"></script>
+    <!-- 引入 Gun.js 用於即時同步 -->
+    <script src="https://cdn.jsdelivr.net/npm/gun/gun.js"></script>
+
+    <script>
+        tailwind.config = {
+            theme: {
+                extend: {
+                    colors: {
+                        'ac-bg': '#F7F4EB', 'ac-sand': '#D4C2AD', 'ac-peach': '#D7A184',
+                        'ac-rose': '#BA8E7A', 'ac-green': '#7BAE7F', 'ac-yellow': '#F4D03F', 'naver': '#03C75A',
+                    },
+                    borderRadius: { 'ac': '2.5rem' },
+                    boxShadow: { 'soft': '4px 4px 0px #E5E1D3' }
+                }
+            }
+        }
+    </script>
+
+    <style>
+        body { font-family: 'Quicksand', sans-serif; background-color: #F7F4EB; color: #BA8E7A; margin: 0; padding: 0; }
+        .no-scrollbar::-webkit-scrollbar { display: none; }
+        [v-cloak] { display: none; }
+        .bottom-safe { padding-bottom: env(safe-area-inset-bottom); }
+        .btn-press { transition: all 0.1s; }
+        .btn-press:active { transform: scale(0.95); }
+        .dot-bg { background-image: radial-gradient(#D4C2AD 1.5px, transparent 1.5px); background-size: 20px 20px; }
+        .boarding-pass::before, .boarding-pass::after { 
+            content: ''; position: absolute; width: 24px; height: 24px; 
+            background: #F7F4EB; border-radius: 50%; top: 45%; transform: translateY(-50%); border: 2px solid #D4C2AD;
+        }
+        .boarding-pass::before { left: -14px; } .boarding-pass::after { right: -14px; }
+        select { appearance: none; }
+        input:disabled, textarea:disabled { background: transparent; opacity: 1; color: #BA8E7A; cursor: default; }
+    </style>
+</head>
+<body class="dot-bg select-none">
+
+<div id="app" v-cloak class="max-w-md mx-auto min-h-screen relative overflow-x-hidden">
+    
+    <!-- ─── 分頁 1：行程 (Schedule) ─── -->
+    <div v-if="activeTab === 'schedule'" class="pb-32 px-6 pt-8">
+        <header>
+            <div class="bg-ac-green text-white p-6 rounded-ac shadow-soft relative overflow-hidden mb-6">
+                <input v-model="tripTitle" class="bg-transparent border-b border-dashed border-white/30 text-[10px] font-bold tracking-[0.2em] outline-none w-full mb-1 uppercase" />
+                <div class="flex items-baseline gap-2">
+                    <span class="text-6xl font-black">{{ countdownDays }}</span>
+                    <span class="text-xl font-bold uppercase">Days</span>
+                </div>
+                <div class="mt-4 flex gap-2 text-[10px] font-bold items-center">
+                    <input type="date" v-model="startDate" class="bg-white/10 px-1 py-1 rounded border outline-none text-white text-[9px]" />
+                    <span class="opacity-40">~</span>
+                    <input type="date" v-model="endDate" class="bg-white/10 px-1 py-1 rounded border outline-none text-white text-[9px]" />
+                </div>
+                <div class="absolute -top-4 -right-4 opacity-10 transform -rotate-12"><i data-lucide="plane-takeoff" style="width: 120px; height: 120px;"></i></div>
+            </div>
+
+            <!-- 天氣預報 -->
+            <div v-if="forecast[selectedDay-1]" class="bg-white rounded-ac border-2 border-ac-sand p-5 shadow-sm mb-4">
+                <div class="flex items-center gap-4 mb-3">
+                    <div class="text-5xl">{{ forecast[selectedDay-1].icon }}</div>
+                    <div class="flex-1">
+                        <div class="text-[10px] font-black opacity-40 uppercase tracking-tighter">Day {{selectedDay}} Weather</div>
+                        <div class="text-2xl font-black text-ac-rose leading-none">{{ forecast[selectedDay-1].desc }}</div>
+                        <div class="text-sm font-bold text-ac-peach mt-1">{{ forecast[selectedDay-1].max }}°C / {{ forecast[selectedDay-1].min }}°</div>
+                    </div>
+                </div>
+                <div class="bg-ac-bg/50 rounded-2xl p-3 border border-dashed border-ac-sand/50 flex items-start gap-2">
+                    <i data-lucide="shirt" class="w-4 h-4 text-ac-green mt-0.5"></i>
+                    <p class="text-[11px] font-bold text-ac-rose">{{ forecast[selectedDay-1].advice }}</p>
+                </div>
+            </div>
+        </header>
+
+        <!-- 日期選擇 Tabs -->
+        <div class="flex overflow-x-auto gap-3 no-scrollbar mb-6 pb-2">
+            <button v-for="(d, index) in tripDates" :key="index" @click="selectedDay = index + 1" 
+                :class="['flex-shrink-0 w-16 h-20 rounded-2xl border-2 flex flex-col items-center justify-center transition-all shadow-sm btn-press', 
+                selectedDay === index + 1 ? 'bg-ac-peach border-ac-peach text-white' : 'bg-white border-ac-sand text-ac-rose']">
+                <span class="text-[10px] font-bold uppercase tracking-widest">D{{index + 1}}</span>
+                <span class="text-sm font-black">{{ d.dateLabel }}</span>
+            </button>
+        </div>
+
+        <!-- 行程內容 -->
+        <div class="relative mt-4">
+            <div class="absolute left-5 top-4 bottom-10 w-0.5 bg-ac-sand opacity-30"></div>
+            <div v-for="(item, index) in filteredSchedule" :key="item.id">
+                <div v-if="index > 0" class="ml-10 my-4 space-y-2">
+                    <div v-for="(trans, tIdx) in item.transports" :key="tIdx" class="bg-white/60 p-3 rounded-xl border border-ac-sand/30 flex flex-col gap-2 shadow-sm">
+                        <div class="flex items-center gap-2">
+                            <select v-model="trans.mode" class="bg-ac-bg/50 px-2 py-1 rounded-lg text-[10px] font-bold outline-none border border-ac-sand/20">
+                                <option v-for="opt in transportOptions" :value="opt">{{ opt }}</option>
+                            </select>
+                            <input v-model="trans.route" class="text-[10px] font-bold text-ac-rose bg-white/40 px-2 py-1 rounded border-b border-ac-sand/20 outline-none flex-1" placeholder="路線(如:2號線)">
+                            <button @click="item.transports.splice(tIdx, 1)" class="text-red-200"><i data-lucide="x" class="w-3 h-3"></i></button>
+                        </div>
+                        <div class="flex items-center gap-2 pl-1"><i data-lucide="clock" class="w-3 h-3 text-ac-sand opacity-50"></i><input v-model="trans.time" class="text-[10px] font-bold text-ac-peach outline-none w-full bg-transparent" placeholder="耗時"></div>
+                    </div>
+                    <button @click="item.transports.push({mode:'🚇地鐵', route:'', time:''})" class="text-[8px] font-black text-ac-peach bg-white border border-ac-peach/30 px-3 py-1.5 rounded-full btn-press">+ 轉乘銜接</button>
+                </div>
+
+                <div class="flex gap-4 mb-4">
+                    <div class="w-10 text-center pt-2">
+                        <div :class="['w-6 h-6 rounded-full border-4 border-ac-bg shadow-sm mx-auto', getCatColor(item.category)]"></div>
+                        <input v-model="item.time" class="text-[10px] font-bold text-ac-rose/60 mt-1 bg-transparent outline-none w-full text-center" />
+                    </div>
+                    <div class="flex-1 bg-white rounded-ac shadow-soft border-2 border-ac-sand p-4 relative group">
+                        <button @click="removeSchedule(item.id)" class="absolute top-2 right-2 text-ac-sand opacity-20 group-hover:opacity-100 transition-opacity"><i data-lucide="x" class="w-3 h-3"></i></button>
+                        <div :class="['px-3 py-0.5 rounded-full text-[8px] font-black text-white absolute -top-2 right-4 uppercase tracking-widest shadow-sm', getCatColor(item.category)]">
+                            <select v-model="item.category" class="bg-transparent outline-none cursor-pointer"><option value="attraction">景點</option><option value="food">美食</option><option value="stay">住宿</option></select>
+                        </div>
+                        <input v-model="item.title" class="text-lg font-black text-ac-rose w-full bg-transparent outline-none mb-1" placeholder="名稱">
+                        <div class="flex items-center gap-2 mt-1"><i data-lucide="map-pin" class="w-3 h-3 text-ac-peach font-bold"></i><input v-model="item.location" class="bg-transparent outline-none flex-1 font-bold text-[10px]" placeholder="搜尋名"><button @click="openNaver(item.location)" class="bg-naver text-white px-2 py-0.5 rounded-full text-[8px] font-black shadow-sm">MAP</button></div>
+                        <div class="flex items-center gap-2 mt-1"><i data-lucide="home" class="w-3 h-3 text-ac-sand font-bold"></i><input v-model="item.address" class="bg-transparent outline-none flex-1 text-[9px] font-medium text-ac-rose/40" placeholder="地址"><button @click="copyText(item.address)" class="text-ac-sand p-1"><i data-lucide="copy" class="w-3 h-3"></i></button></div>
+                        <textarea v-model="item.notes" class="w-full bg-ac-bg/50 rounded-xl p-2 text-xs mt-3 h-16 resize-none outline-none leading-relaxed" placeholder="備註..."></textarea>
+                    </div>
+                </div>
+            </div>
+            <button @click="addNewSchedule" class="ml-14 px-6 py-4 bg-white/50 border-2 border-dashed border-ac-sand rounded-ac text-ac-sand font-bold text-sm btn-press shadow-xs">+ 加入新地點</button>
+        </div>
+    </div>
+
+    <!-- ─── 分頁 2：預訂 (Bookings) ─── -->
+    <div v-if="activeTab === 'bookings'" class="p-6 pb-32 pt-8">
+        <div class="flex justify-between items-center mb-6">
+            <h2 class="text-2xl font-black text-ac-rose uppercase tracking-tighter">🗂️ Bookings</h2>
+            <button @click="toggleEditLock" :class="['p-3 rounded-full transition-all shadow-soft border-2', isLocked ? 'bg-white border-ac-sand' : 'bg-ac-peach text-white']"><i :data-lucide="isLocked ? 'lock' : 'unlock'" class="w-5 h-5"></i></button>
+        </div>
+        
+        <section class="mb-10">
+            <div v-for="(f, idx) in bookingData.flights" :key="idx" class="boarding-pass relative bg-white rounded-3xl shadow-soft border-2 border-ac-sand p-6 mb-8 overflow-hidden transition-all text-center">
+                <div class="flex justify-between items-center mb-4 relative z-10 text-center">
+                    <div class="flex-1 text-center"><input v-model="f.from" :disabled="isLocked" class="text-4xl font-black text-ac-rose w-full outline-none uppercase text-center"><p class="text-[8px] font-black opacity-30">FROM</p></div>
+                    <div class="flex-1 flex flex-col items-center opacity-30"><i data-lucide="plane"></i><input v-model="f.no" :disabled="isLocked" class="text-[8px] font-black text-center w-full uppercase outline-none" placeholder="班號"></div>
+                    <div class="flex-1 text-center"><input v-model="f.to" :disabled="isLocked" class="text-4xl font-black text-ac-green w-full outline-none text-center uppercase"><p class="text-[8px] font-black opacity-30 text-center uppercase">To</p></div>
+                </div>
+                <div class="grid grid-cols-2 gap-y-4 border-t-2 border-dashed border-ac-sand/30 pt-6 relative z-10 text-[10px]">
+                    <div class="text-left"><p class="opacity-40 uppercase font-black tracking-widest text-left">Dep Time</p><input v-model="f.depTime" :disabled="isLocked" class="font-bold outline-none w-full text-left"></div>
+                    <div class="text-right"><p class="opacity-40 uppercase font-black tracking-widest text-right">Arr Time</p><input v-model="f.arrTime" :disabled="isLocked" class="font-bold outline-none w-full text-right"></div>
+                    <div class="text-left"><p class="opacity-40 uppercase font-black tracking-tighter text-left">出境航廈</p><input v-model="f.depTerm" :disabled="isLocked" class="font-bold outline-none w-full text-left" placeholder="T2"></div>
+                    <div class="text-right"><p class="opacity-40 uppercase font-black tracking-widest text-right">行李上限</p><input v-model="f.luggage" :disabled="isLocked" class="font-bold outline-none w-full text-right" placeholder="30KG"></div>
+                </div>
+                <button v-if="!isLocked" @click="bookingData.flights.splice(idx,1)" class="absolute bottom-4 right-4 text-red-300">✕</button>
+            </div>
+        </section>
+
+        <div v-for="(h, idx) in bookingData.hotels" :key="idx" class="bg-white rounded-ac shadow-soft border-2 border-ac-sand p-6 mb-6 transition-all">
+            <div class="flex justify-between items-start mb-2">
+                <div class="flex-1"><input v-model="h.name" :disabled="isLocked" class="text-xl font-black text-ac-rose w-full bg-transparent outline-none mb-1" placeholder="飯店名稱">
+                <div class="flex items-center gap-2"><i data-lucide="map-pin" class="w-3 h-3 text-ac-peach font-bold"></i><input v-model="h.address" :disabled="isLocked" class="text-[10px] font-bold text-ac-rose/40 outline-none w-full bg-transparent" placeholder="飯店地址"></div></div>
+            </div>
+            <div class="grid grid-cols-2 gap-4 bg-ac-bg p-4 rounded-2xl text-[10px] font-bold mb-4 shadow-inner">
+                <div><div class="opacity-40 uppercase mb-1">Check-in</div><input v-model="h.in" :disabled="isLocked" class="bg-transparent outline-none w-full text-ac-rose font-black"></div>
+                <div class="text-right"><div class="opacity-40 uppercase mb-1">Check-out</div><input v-model="h.out" :disabled="isLocked" class="bg-transparent outline-none w-full text-right text-ac-rose font-black"></div>
+            </div>
+            <div class="grid grid-cols-3 gap-2 mb-4">
+                <div class="bg-ac-green/5 border border-ac-green/10 p-3 rounded-2xl text-center"><p class="text-[8px] font-black opacity-40 uppercase mb-1">Room</p><input v-model="h.roomNo" :disabled="isLocked" class="w-full bg-transparent outline-none font-black text-ac-green text-sm text-center" placeholder="---"></div>
+                <div class="col-span-2 bg-ac-peach/5 border border-ac-peach/20 p-3 rounded-2xl"><p class="text-[8px] font-black opacity-40 uppercase mb-1">Notes</p><input v-model="h.note" :disabled="isLocked" class="w-full bg-transparent outline-none font-bold text-ac-rose text-[10px]" placeholder="Wifi / 入住代碼..."></div>
+            </div>
+            <button @click="openNaver(h.name)" class="w-full py-3 bg-ac-green text-white rounded-full font-black text-xs btn-press flex items-center justify-center gap-2 shadow-sm"><i data-lucide="navigation" class="w-4 h-4"></i> 開啟導航</button>
+        </div>
+        
+        <div v-if="showPinModal" class="fixed inset-0 bg-ac-rose/90 backdrop-blur-xl z-[200] flex items-center justify-center p-8">
+            <div class="bg-ac-bg rounded-ac border-4 border-ac-sand p-8 w-full max-w-xs text-center shadow-2xl">
+                <h3 class="text-xl font-black text-ac-rose mb-6">隱私解鎖</h3>
+                <div class="flex justify-center gap-4 mb-8">
+                    <div v-for="i in 3" :key="i" class="w-10 h-10 bg-white border-2 border-ac-sand rounded-xl flex items-center justify-center text-xl font-black shadow-inner">{{ pinInput[i-1] ? '●' : '' }}</div>
+                </div>
+                <div class="grid grid-cols-3 gap-3">
+                    <button v-for="n in [1,2,3,4,5,6,7,8,9,0]" :key="n" @click="pressPin(n)" class="w-14 h-14 bg-white rounded-2xl border-2 border-ac-sand font-black text-xl shadow-soft btn-press">{{n}}</button>
+                    <button @click="showPinModal=false" class="w-14 h-14 bg-red-100 rounded-2xl border-2 border-red-200 font-bold text-xs text-red-400">✕</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- ─── 分頁 3：準備 (Planning) ─── -->
+    <div v-if="activeTab === 'planning'" class="p-6 pb-32 pt-8">
+        <div class="bg-white rounded-full p-1 flex shadow-sm border border-ac-sand/30 mb-6">
+            <button v-for="tab in ['待辦', '行李', '採購']" :key="tab" @click="planTab = tab" :class="['flex-1 py-3 rounded-full font-black text-[10px] transition-all', planTab === tab ? 'bg-ac-green text-white shadow-md' : 'text-ac-sand']">{{tab}}</button>
+        </div>
+        <div class="bg-white rounded-ac shadow-soft border border-ac-sand/20 mb-8 flex flex-col overflow-hidden">
+            <div class="p-3 bg-ac-bg/30 border-b border-ac-sand/10 flex gap-2 overflow-x-auto no-scrollbar">
+                <button v-for="m in members" :key="m.id" @click="toggleAssign(m.name)" :class="['flex-shrink-0 flex items-center gap-1 px-3 py-1.5 rounded-full border-2 transition-all shadow-xs', newPlan.assigned.includes(m.name) ? 'border-ac-green bg-ac-green text-white' : 'border-white bg-white text-ac-sand']">
+                    <span class="text-[10px] font-black">{{m.name}}</span>
+                </button>
+            </div>
+            <div class="flex items-center p-1">
+                <textarea v-model="newPlan.title" class="flex-1 p-5 bg-transparent outline-none font-bold text-ac-rose h-24 resize-none placeholder:text-ac-sand/50" :placeholder="'新增' + planTab + '...'"></textarea>
+                <button @click="addPlan" class="w-10 h-10 mr-3 rounded-xl bg-ac-green text-white flex items-center justify-center shadow-md btn-press"><i data-lucide="plus"></i></button>
+            </div>
+        </div>
+        <div class="space-y-4">
+            <div v-for="p in filteredPlans" :key="p.id" class="bg-white p-5 rounded-ac border border-ac-sand/20 shadow-sm flex items-start gap-4 transition-all">
+                <div class="w-10 h-10 rounded-full border-2 border-ac-green text-ac-green flex flex-col items-center justify-center text-[8px] font-black shrink-0 shadow-inner"><span>{{ p.doneBy.length }}/{{ p.assigned.length }}</span></div>
+                <div class="flex-1">
+                    <p :class="['font-black text-ac-rose text-lg transition-all', p.doneBy.length === p.assigned.length ? 'line-through opacity-30 scale-95' : '']">{{ p.title }}</p>
+                    <div class="flex flex-wrap gap-2 mt-3">
+                        <button v-for="name in p.assigned" :key="name" @click="toggleMemberDone(p, name)" :class="['flex items-center gap-1 px-2 py-1 rounded-full border-2 transition-all shadow-xs', p.doneBy.includes(name) ? 'bg-ac-green text-white border-ac-green opacity-50' : 'bg-white text-ac-sand border-ac-sand/20']">
+                            <span class="text-[9px] font-black">{{ name }}</span><i v-if="p.doneBy.includes(name)" data-lucide="check" class="w-2.5 h-2.5 ml-1"></i>
+                        </button>
+                    </div>
+                </div>
+                <button @click="removePlan(p.id)" class="text-ac-sand opacity-20 hover:opacity-100 transition-opacity"><i data-lucide="trash-2" class="w-4 h-4"></i></button>
+            </div>
+        </div>
+    </div>
+
+    <!-- ─── 分頁 4：記帳 (Expense) ─── -->
+    <div v-if="activeTab === 'expense'" class="p-6 pb-32 pt-8">
+        <div class="bg-white rounded-full p-1 flex shadow-sm border border-ac-sand/30 mb-6 mx-4">
+            <button @click="expSub = 'input'" :class="['flex-1 py-3 rounded-full font-black text-xs transition-all', expSub === 'input' ? 'bg-ac-green text-white shadow-md' : 'text-ac-sand']">記帳</button>
+            <button @click="expSub = 'detail'" :class="['flex-1 py-3 rounded-full font-black text-xs transition-all', expSub === 'detail' ? 'bg-ac-green text-white shadow-md' : 'text-ac-sand']">明細</button>
+        </div>
+
+        <div v-if="expSub === 'input'" class="space-y-5">
+            <!-- 換算工具 -->
+            <div class="bg-white rounded-ac shadow-soft p-5 border border-ac-sand/30">
+                <div class="flex justify-between items-center mb-3 text-[10px] font-black text-ac-rose uppercase tracking-widest">
+                    <span><i data-lucide="calculator" class="w-3 h-3 inline mr-1"></i> 雙向換算</span>
+                    <button @click="fetchRate" class="text-ac-green flex items-center gap-1"><i data-lucide="refresh-cw" :class="{'animate-spin': rateLoading}" class="w-2.5 h-2.5"></i> 同步</button>
+                </div>
+                <div class="flex items-center gap-3">
+                    <div class="flex-1 relative"><input type="number" v-model="quickKrw" @input="quickTwd = Math.round(quickKrw * exRate)" class="w-full p-3 bg-ac-bg rounded-xl font-black text-xl outline-none shadow-inner" placeholder="0"><span class="absolute right-3 top-4 text-[8px] font-black opacity-30">KRW</span></div>
+                    <div class="text-ac-sand">➔</div>
+                    <div class="flex-1 relative"><input type="number" v-model="quickTwd" @input="quickKrw = Math.round(quickTwd / exRate)" class="w-full p-3 bg-ac-green/10 rounded-xl font-black text-xl outline-none shadow-inner" placeholder="0"><span class="absolute right-3 top-4 text-[8px] font-black opacity-30 text-ac-green">TWD</span></div>
+                </div>
+            </div>
+
+            <!-- 記帳表單 -->
+            <div class="bg-white rounded-ac shadow-soft p-6 border border-ac-sand/30 space-y-4">
+                <input type="date" v-model="newExp.date" class="w-full p-4 bg-ac-bg rounded-2xl font-bold border-none shadow-inner">
+                <div class="grid grid-cols-2 gap-4">
+                    <div class="relative"><input type="number" v-model="newExp.amt" class="w-full p-4 bg-ac-bg rounded-2xl font-black text-2xl outline-none shadow-inner" placeholder="0"><span class="absolute top-2 left-4 text-[8px] opacity-30 font-bold uppercase">KRW</span></div>
+                    <div class="w-full p-4 bg-white border-2 border-ac-sand/30 rounded-2xl font-black text-2xl text-ac-sand/50 flex items-center shadow-inner">{{ Math.round(newExp.amt * exRate) }}<span class="text-[8px] ml-1 uppercase">TWD</span></div>
+                </div>
+                <div class="grid grid-cols-2 gap-2"><button v-for="m in ['現金','WOWPASS','信用卡','行動支付']" :key="m" @click="newExp.method = m" :class="['py-3 rounded-xl border-2 font-bold text-[10px] transition-all', newExp.method === m ? 'border-ac-peach bg-ac-peach/5 text-ac-peach shadow-inner' : 'border-ac-sand/30 text-ac-sand opacity-60 shadow-xs']">{{m}}</button></div>
+                <input v-model="newExp.location" class="w-full p-4 bg-ac-bg rounded-2xl font-bold outline-none shadow-inner" placeholder="消費地點">
+                <input v-model="newExp.title" class="w-full p-4 bg-ac-bg rounded-2xl font-bold outline-none shadow-inner" placeholder="消費項目">
+                
+                <label class="text-[10px] font-black opacity-40 uppercase block mb-1">付款人</label>
+                <div class="flex gap-2 overflow-x-auto no-scrollbar py-2">
+                    <button v-for="m in members" :key="m.id" @click="newExp.payer = m.name" :class="['flex-shrink-0 w-12 h-12 rounded-full border-4 transition-all', newExp.payer === m.name ? 'border-ac-green scale-110 shadow-md' : 'border-transparent opacity-40']">
+                        <div class="w-full h-full bg-ac-bg rounded-full flex items-center justify-center text-xl shadow-inner">{{ m.avatar }}</div>
+                    </button>
+                </div>
+
+                <div class="pt-4 border-t border-ac-sand/20 space-y-4">
+                    <div class="flex justify-between items-center">
+                        <label class="text-[10px] font-black opacity-40 uppercase">分帳模式</label>
+                        <div class="flex bg-ac-bg rounded-lg p-1">
+                            <button @click="newExp.splitType = 'equal'" :class="['px-3 py-1 text-[10px] font-bold rounded-md transition-all', newExp.splitType === 'equal' ? 'bg-white text-ac-rose shadow-sm' : 'text-ac-sand']">平均</button>
+                            <button @click="newExp.splitType = 'custom'" :class="['px-3 py-1 text-[10px] font-bold rounded-md transition-all', newExp.splitType === 'custom' ? 'bg-white text-ac-rose shadow-sm' : 'text-ac-sand']">自由</button>
+                        </div>
+                    </div>
+                    <div class="flex flex-wrap gap-2">
+                        <button v-for="m in members" :key="m.id" @click="toggleParticipant(m.name)" :class="['px-3 py-2 rounded-xl border-2 font-bold text-[10px] transition-all flex items-center gap-2', newExp.participants.includes(m.name) ? 'border-ac-peach bg-ac-peach/10 text-ac-peach' : 'border-ac-sand/20 text-ac-sand']">
+                            <span>{{ m.avatar }}</span> {{ m.name }}
+                            <i v-if="newExp.participants.includes(m.name)" data-lucide="check" class="w-3 h-3"></i>
+                        </button>
+                    </div>
+                    <div v-if="newExp.splitType === 'custom' && newExp.participants.length > 0" class="space-y-2 bg-ac-bg/30 p-4 rounded-2xl">
+                        <div v-for="name in newExp.participants" :key="name" class="flex items-center justify-between">
+                            <span class="text-xs font-black text-ac-rose">{{ name }}</span>
+                            <div class="relative w-32">
+                                <input type="number" v-model="newExp.customAmounts[name]" class="w-full p-2 bg-white rounded-lg text-right text-xs font-black outline-none border border-ac-sand/20" placeholder="0"><span class="absolute left-2 top-2 text-[8px] opacity-30">₩</span>
+                            </div>
+                        </div>
+                        <div class="pt-2 border-t border-ac-sand/20 flex justify-between text-[10px] font-bold">
+                            <span :class="customTotalDiff === 0 ? 'text-ac-green' : 'text-red-400'">{{ customTotalDiff === 0 ? '金額已湊齊 ✨' : '還差 ₩' + customTotalDiff }}</span>
+                            <span class="text-ac-sand">總計: ₩{{ currentCustomTotal }}</span>
+                        </div>
+                    </div>
+                </div>
+
+                <button @click="saveExp" class="w-full py-5 bg-ac-green text-white rounded-full font-black text-xl shadow-soft btn-press transition-all">確認記帳 ✨</button>
+            </div>
+        </div>
+
+        <!-- 記帳明細 -->
+        <div v-if="expSub === 'detail'" class="space-y-6">
+            <div class="bg-ac-yellow rounded-[2.5rem] p-8 shadow-soft border-2 border-white relative overflow-hidden mx-2 transition-all">
+                <div class="relative z-10">
+                    <p class="text-[10px] font-bold text-ac-rose/60 uppercase tracking-widest mb-1">
+                        {{ filterMember === 'all' ? '全體' : filterMember }} 支出
+                    </p>
+                    <div class="flex items-baseline gap-1">
+                        <span class="text-4xl font-black text-ac-rose">NT$</span>
+                        <span class="text-5xl font-black text-ac-rose tracking-tighter">{{ displayTotalTWD.toLocaleString() }}</span>
+                    </div>
+                    <div class="flex justify-between items-end mt-8 border-t border-ac-rose/10 pt-4">
+                        <div class="text-left">
+                            <p class="text-[8px] font-black text-ac-rose/40 uppercase">KRW {{ displayTotalKRW.toLocaleString() }}</p>
+                        </div>
+                        <div class="text-right">
+                            <p class="text-[8px] font-black text-ac-rose/40 uppercase">RATE: {{ exRate }}</p>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="flex gap-2 overflow-x-auto no-scrollbar py-2 px-2">
+                <button @click="filterMember = 'all'" :class="['flex-shrink-0 px-6 py-2 rounded-full font-black text-xs transition-all border-2', filterMember === 'all' ? 'bg-white border-ac-sand text-ac-rose shadow-sm' : 'bg-white/40 border-transparent text-ac-sand']">全體</button>
+                <button v-for="m in members" :key="m.id" @click="filterMember = m.name" :class="['flex-shrink-0 px-4 py-2 rounded-full font-black text-xs transition-all border-2 flex items-center gap-2', filterMember === m.name ? 'bg-ac-green border-ac-green text-white shadow-md' : 'bg-white border-ac-sand/30 text-ac-sand']">
+                    <span>{{ m.avatar }}</span> {{ m.name }}
+                </button>
+            </div>
+
+            <div class="space-y-4">
+                <div v-for="e in filteredExpensesList" :key="e.id" class="bg-white p-5 rounded-ac border-2 border-ac-sand shadow-sm flex flex-col gap-3 relative group transition-all mx-2">
+                    <button @click="removeExp(e.id)" class="absolute top-4 right-4 text-ac-sand opacity-20 hover:opacity-100"><i data-lucide="trash-2" class="w-3 h-3"></i></button>
+                    
+                    <div class="flex justify-between items-start pr-4">
+                        <div class="flex items-center gap-3">
+                            <div class="w-10 h-10 rounded-full bg-ac-bg flex items-center justify-center text-xl shadow-inner border border-white">{{ getAvatar(e.payer) }}</div>
+                            <div>
+                                <div class="font-black text-ac-rose text-sm">{{ e.title }}</div>
+                                <div class="text-[9px] font-bold text-ac-sand">{{ e.date }} · {{ e.location }}</div>
+                            </div>
+                        </div>
+                        <div class="text-right">
+                            <div class="font-black text-ac-green text-md">₩ {{ e.amount.toLocaleString() }}</div>
+                            <div class="text-[9px] font-bold text-ac-sand">NT$ {{ Math.round(e.amount * exRate).toLocaleString() }}</div>
+                        </div>
+                    </div>
+
+                    <div class="pt-3 border-t border-dashed border-ac-sand/30">
+                        <p class="text-[8px] font-black text-ac-sand uppercase mb-2">分帳結算 (勾選代表已付給 {{e.payer}})</p>
+                        <div class="flex flex-wrap gap-2">
+                            <div v-for="(amt, name) in e.splitDetails" :key="name" 
+                                 :class="['flex items-center gap-1.5 px-2 py-1 rounded-lg border transition-all', isMemberSettled(e, name) ? 'bg-ac-green/10 border-ac-green/30 opacity-60' : 'bg-ac-bg border-ac-sand/20']">
+                                <input type="checkbox" :checked="isMemberSettled(e, name)" @change="toggleSettlement(e, name)" class="w-3 h-3 accent-ac-green cursor-pointer">
+                                <span :class="['text-[10px] font-black', isMemberSettled(e, name) ? 'text-ac-green line-through' : 'text-ac-rose']">
+                                    {{ name }} ₩{{ Math.round(amt).toLocaleString() }}
+                                </span>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- ─── 分頁 5：成員 (Members) ─── -->
+    <div v-if="activeTab === 'members'" class="p-6 pb-32 pt-8 text-center">
+        <h2 class="text-2xl font-black text-ac-rose mb-6 flex items-center justify-center gap-2 uppercase tracking-tighter">🏡 Members</h2>
+        
+        <!-- 同步狀態提示 -->
+        <div v-if="syncRoomID" class="mb-4 bg-ac-green/10 text-ac-green text-[10px] font-bold p-3 rounded-2xl border border-ac-green/20 flex items-center justify-center gap-2">
+            <span class="relative flex h-2 w-2"><span class="animate-ping absolute inline-flex h-full w-full rounded-full bg-ac-green opacity-75"></span><span class="relative inline-flex rounded-full h-2 w-2 bg-ac-green"></span></span>
+            雲端連線中: {{ syncRoomID }}
+        </div>
+
+        <div class="bg-white p-6 rounded-ac shadow-soft border-2 border-ac-sand mb-8 relative transition-all shadow-lg">
+            <div class="w-24 h-24 bg-ac-bg mx-auto rounded-full flex items-center justify-center text-5xl mb-4 border-4 border-white shadow-inner">{{ tempMember.avatar }}</div>
+            <input v-model="tempMember.name" class="text-xl font-black text-ac-rose text-center bg-ac-bg p-3 rounded-2xl border-b-4 border-ac-sand outline-none w-full mb-6 shadow-inner" placeholder="姓名...">
+            <div class="grid grid-cols-5 gap-3 mb-6">
+                <div v-for="a in avatars" :key="a" @click="tempMember.avatar = a" :class="['w-10 h-10 rounded-xl bg-ac-bg flex items-center justify-center text-xl cursor-pointer transition-all border-2 shadow-xs', tempMember.avatar === a ? 'border-ac-peach bg-white scale-110 shadow-sm' : 'border-transparent']">{{ a }}</div>
+            </div>
+            <button @click="confirmMember" class="w-full py-4 bg-ac-green text-white rounded-full font-black text-lg shadow-soft btn-press">確認新增成員 ✨</button>
+        </div>
+        <div class="space-y-3">
+            <div v-for="m in members" :key="m.id" class="flex items-center gap-4 p-4 bg-white/60 rounded-2xl border-2 border-transparent shadow-sm">
+                <div class="w-12 h-12 bg-ac-bg rounded-full flex items-center justify-center text-2xl border-2 border-white shadow-sm">{{ m.avatar }}</div>
+                <div class="flex-1 text-left font-black text-ac-rose text-lg uppercase leading-none">{{ m.name }}</div>
+                <button @click="removeMember(m.id)" class="text-red-200 p-2"><i data-lucide="trash-2" class="w-4 h-4"></i></button>
+            </div>
+        </div>
+
+        <!-- 即時同步功能區 -->
+        <div class="bg-white p-6 rounded-ac shadow-soft border-2 border-ac-sand mt-8 text-left space-y-4 shadow-md">
+            <h3 class="font-black text-ac-rose text-xs uppercase flex items-center gap-2 tracking-widest"><i data-lucide="cloud" class="w-4 h-4"></i> ☁️ 裝置雲端同步</h3>
+            <p class="text-[9px] font-bold text-ac-sand leading-relaxed">輸入相同的金鑰即可與旅伴共同編輯。連線後資料將即時同步至雲端。</p>
+            <div class="flex gap-2">
+                <input v-model="syncInput" class="flex-1 p-3 bg-ac-bg rounded-xl font-black text-sm outline-none border-b-2 border-ac-sand shadow-inner" placeholder="輸入同步房間名稱...">
+                <button @click="connectSync" :class="['px-4 py-3 rounded-xl font-black text-xs btn-press shadow-sm', syncRoomID ? 'bg-red-400 text-white' : 'bg-ac-peach text-white']">
+                    {{ syncRoomID ? '中斷' : '開啟' }}
+                </button>
+            </div>
+        </div>
+
+        <div class="bg-white p-6 rounded-ac shadow-soft border-2 border-ac-sand mt-4 text-left space-y-4 shadow-md">
+            <h3 class="font-black text-ac-rose text-xs uppercase flex items-center gap-2 tracking-widest"><i data-lucide="settings" class="w-4 h-4"></i> System Settings</h3>
+            <div>
+                <label class="text-[10px] font-bold opacity-40 uppercase tracking-tighter">的安全解鎖 PIN (僅數字)</label>
+                <input v-model="userPIN" maxlength="6" class="w-full p-4 bg-ac-bg rounded-2xl text-center font-black text-2xl outline-none border-b-4 border-ac-sand shadow-inner mt-1">
+            </div>
+            <button @click="resetAllData" class="w-full py-3 border-2 border-red-100 text-red-300 rounded-2xl text-[10px] font-black uppercase hover:bg-red-50 transition-all btn-press">重置所有資料 ⚠️</button>
+        </div>
+    </div>
+
+    <!-- 底部導航 -->
+    <nav class="fixed bottom-6 left-6 right-6 bg-ac-rose/95 backdrop-blur-md rounded-full py-4 px-6 shadow-2xl z-50 flex justify-between items-center text-white bottom-safe border border-white/20">
+        <button v-for="t in [{id:'schedule',i:'calendar-days'},{id:'bookings',i:'briefcase'},{id:'planning',i:'check-square'},{id:'expense',i:'wallet'},{id:'members',i:'users'}]" :key="t.id" @click="activeTab = t.id" :class="['transition-all', activeTab === t.id ? 'text-ac-bg scale-125' : 'opacity-40']"><i :data-lucide="t.i"></i></button>
+    </nav>
+</div>
+
+<script>
+    const { createApp, ref, computed, onMounted, nextTick, watch } = Vue;
+    const STORAGE_KEY = 'seoul_travel_buddy_merged_v1';
+    
+    // 初始化 Gun.js (使用公共中繼伺服器)
+    const gun = Gun(['https://gun-manhattan.herokuapp.com/gun']);
+
+    createApp({
+        setup() {
+            const initial = JSON.parse(localStorage.getItem(STORAGE_KEY)) || {};
+
+            const activeTab = ref('schedule');
+            const tripTitle = ref(initial.tripTitle || 'SEOUL JOURNEY 2026');
+            const startDate = ref(initial.startDate || '2026-12-08');
+            const endDate = ref(initial.endDate || '2026-12-13');
+            const userPIN = ref(initial.userPIN || '007');
+
+            const members = ref(initial.members || [{id:1, name:'預設', avatar:'🦊'}]);
+            const tempMember = ref({ name: '', avatar: '🦊' });
+            const avatars = ['🐱','🐶','🐰','🦊','🐨','🐻','🐼','🦁','🐸','🐹'];
+            
+            const schedule = ref(initial.schedule || []);
+            const selectedDay = ref(1);
+            const transportOptions = ['🚇地鐵', '🚌公車', '👣步行', '✈️飛機', '其他'];
+
+            const bookingData = ref(initial.bookingData || { 
+                flights: [{ from: 'TPE', to: 'ICN', no: 'BR170', depTime: '07:30', arrTime: '11:00', depTerm: 'T2', luggage: '30KG' }], 
+                hotels: [{ name: '飯店名稱', in: '15:00', out: '11:00', address: '首爾某處', roomNo: '', note: '' }] 
+            });
+            const isLocked = ref(true);
+            const showPinModal = ref(false);
+            const pinInput = ref('');
+
+            const expenses = ref(initial.expenses || []);
+            const exRate = ref(initial.exRate || 0.024);
+            const expSub = ref('input');
+            const quickKrw = ref(0); const quickTwd = ref(0);
+            const rateLoading = ref(false);
+            const filterMember = ref('all');
+            const newExp = ref({
+                date: new Date().toISOString().substr(0,10),
+                amt: null, method: '現金', location: '', title: '', payer: '',
+                participants: [], splitType: 'equal', customAmounts: {}, settledMembers: []
+            });
+
+            const plans = ref(initial.plans || []);
+            const planTab = ref('待辦');
+            const newPlan = ref({ title: '', assigned: [] });
+            const forecast = ref([]);
+
+            // ─── 雲端同步邏輯 ───
+            const syncInput = ref(initial.syncRoomID || '');
+            const syncRoomID = ref(initial.syncRoomID || '');
+            let isSyncingFromCloud = false;
+
+            const connectSync = () => {
+                if (syncRoomID.value) {
+                    if (confirm('確定要中斷連線？資料將保留在本地。')) {
+                        syncRoomID.value = '';
+                        location.reload();
+                    }
+                } else {
+                    if (syncInput.value.trim().length < 4) return alert('房間名稱太短，請輸入至少4個字');
+                    syncRoomID.value = syncInput.value.trim();
+                    initGunSync();
+                }
+            };
+
+            const initGunSync = () => {
+                const room = gun.get('seoul_travel_' + syncRoomID.value);
+                // 從雲端獲取
+                room.on((data) => {
+                    if (isSyncingFromCloud) return; 
+                    isSyncingFromCloud = true;
+                    if (data.fullData) {
+                        const parsed = JSON.parse(data.fullData);
+                        tripTitle.value = parsed.tripTitle;
+                        startDate.value = parsed.startDate;
+                        endDate.value = parsed.endDate;
+                        members.value = parsed.members;
+                        schedule.value = parsed.schedule;
+                        bookingData.value = parsed.bookingData;
+                        expenses.value = parsed.expenses;
+                        plans.value = parsed.plans;
+                        exRate.value = parsed.exRate;
+                    }
+                    setTimeout(() => isSyncingFromCloud = false, 500);
+                });
+            };
+
+            const pushToCloud = () => {
+                if (!syncRoomID.value || isSyncingFromCloud) return;
+                const dataStr = JSON.stringify({
+                    tripTitle: tripTitle.value, startDate: startDate.value, endDate: endDate.value,
+                    members: members.value, schedule: schedule.value, bookingData: bookingData.value,
+                    expenses: expenses.value, plans: plans.value, exRate: exRate.value
+                });
+                gun.get('seoul_travel_' + syncRoomID.value).put({ fullData: dataStr });
+            };
+
+            // ─── 原有記帳明細核心邏輯 ───
+            const displayTotalKRW = computed(() => {
+                if (filterMember.value === 'all') return expenses.value.reduce((sum, e) => sum + e.amount, 0);
+                return expenses.value.reduce((sum, e) => sum + (e.splitDetails[filterMember.value] || 0), 0);
+            });
+            const displayTotalTWD = computed(() => Math.round(displayTotalKRW.value * exRate.value));
+            const filteredExpensesList = computed(() => {
+                if (filterMember.value === 'all') return expenses.value;
+                return expenses.value.filter(e => e.splitDetails.hasOwnProperty(filterMember.value));
+            });
+            const isMemberSettled = (exp, name) => {
+                if (!exp.settledMembers) exp.settledMembers = [];
+                return exp.settledMembers.includes(name);
+            };
+            const toggleSettlement = (exp, name) => {
+                if (!exp.settledMembers) exp.settledMembers = [];
+                const idx = exp.settledMembers.indexOf(name);
+                if (idx > -1) exp.settledMembers.splice(idx, 1);
+                else exp.settledMembers.push(name);
+            };
+
+            const currentCustomTotal = computed(() => Object.values(newExp.value.customAmounts).reduce((a, b) => Number(a) + Number(b), 0));
+            const customTotalDiff = computed(() => (newExp.value.amt || 0) - currentCustomTotal.value);
+            const toggleParticipant = (name) => {
+                const idx = newExp.value.participants.indexOf(name);
+                if (idx > -1) { newExp.value.participants.splice(idx, 1); delete newExp.value.customAmounts[name]; } 
+                else { newExp.value.participants.push(name); newExp.value.customAmounts[name] = 0; }
+            };
+
+            const saveExp = () => {
+                const { amt, payer, participants, splitType, customAmounts } = newExp.value;
+                if (!amt || !payer || participants.length === 0) return alert('請填齊金額、付款人及分帳對象！');
+                if (splitType === 'custom' && customTotalDiff.value !== 0) return alert(`金額不符！差 ₩${customTotalDiff.value}`);
+                let splitDetails = {};
+                if (splitType === 'equal') {
+                    const perPerson = amt / participants.length;
+                    participants.forEach(n => splitDetails[n] = perPerson);
+                } else { splitDetails = { ...customAmounts }; }
+                expenses.value.unshift({ ...newExp.value, id: Date.now(), amount: Number(amt), splitDetails: splitDetails, settledMembers: [payer] });
+                newExp.value = { date: new Date().toISOString().substr(0,10), amt: null, method: '現金', location: '', title: '', payer: '', participants: [], splitType: 'equal', customAmounts: {}, settledMembers: [] };
+                expSub.value = 'detail';
+            };
+
+            watch([tripTitle, startDate, endDate, userPIN, members, schedule, bookingData, expenses, plans, exRate, syncRoomID], () => {
+                const data = { tripTitle: tripTitle.value, startDate: startDate.value, endDate: endDate.value, userPIN: userPIN.value, members: members.value, schedule: schedule.value, bookingData: bookingData.value, expenses: expenses.value, plans: plans.value, exRate: exRate.value, syncRoomID: syncRoomID.value };
+                localStorage.setItem(STORAGE_KEY, JSON.stringify(data));
+                pushToCloud();
+            }, { deep: true });
+
+            const fetchWeather = async () => {
+                try {
+                    const res = await fetch(`https://api.open-meteo.com/v1/forecast?latitude=37.5665&longitude=126.9780&daily=weather_code,temperature_2m_max,temperature_2m_min&timezone=Asia%2FSeoul`);
+                    const data = await res.json();
+                    forecast.value = data.daily.time.slice(0, 10).map((t, i) => {
+                        const code = data.daily.weather_code[i];
+                        let desc = "晴朗", icon = "☀️", advice = "適合拍照喔 ✨";
+                        if(code > 3) { desc = "陰天"; icon = "☁️"; advice = "洋蔥式穿法 🧥"; }
+                        if(code > 60) { desc = "有雨"; icon = "🌧️"; advice = "記得帶傘 ☂️"; }
+                        return { max: Math.round(data.daily.temperature_2m_max[i]), min: Math.round(data.daily.temperature_2m_min[i]), icon, desc, advice };
+                    });
+                } catch(e) {}
+            };
+
+            onMounted(() => { 
+                fetchWeather(); 
+                lucide.createIcons();
+                if(syncRoomID.value) initGunSync();
+            });
+            watch(activeTab, () => { nextTick(() => lucide.createIcons()); });
+
+            return {
+                activeTab, tripTitle, startDate, endDate, countdownDays: computed(() => Math.max(0, Math.ceil((new Date(startDate.value) - new Date().setHours(0,0,0,0)) / (1000 * 60 * 60 * 24)))),
+                tripDates: computed(() => {
+                    const dates = []; const start = new Date(startDate.value);
+                    const dur = Math.max(1, Math.ceil((new Date(endDate.value) - new Date(startDate.value)) / (1000 * 60 * 60 * 24)) + 1);
+                    for(let i=0; i<dur; i++) {
+                        const cur = new Date(start); cur.setDate(start.getDate() + i);
+                        dates.push({ dateLabel: `${cur.getMonth()+1}/${cur.getDate()}` });
+                    }
+                    return dates;
+                }),
+                selectedDay, transportOptions, schedule, members, tempMember, avatars,
+                confirmMember: () => { if(tempMember.value.name) members.value.push({ ...tempMember.value, id: Date.now() }); tempMember.value = {name:'', avatar:'🦊'}; },
+                removeMember: (id) => members.value = members.value.filter(m => m.id !== id),
+                filteredSchedule: computed(() => schedule.value.filter(i => i.day === selectedDay.value)),
+                addNewSchedule: () => schedule.value.push({ id: Date.now(), day: selectedDay.value, time: '12:00', title: '', location: '', address: '', category: 'attraction', notes: '', transports: [] }),
+                removeSchedule: (id) => schedule.value = schedule.value.filter(i => i.id !== id),
+                getCatColor: (cat) => ({ attraction: 'bg-ac-green', food: 'bg-ac-peach', stay: 'bg-ac-sand' }[cat]),
+                isLocked, showPinModal, pinInput, toggleEditLock: () => { if(!isLocked.value) isLocked.value=true; else { showPinModal.value=true; pinInput.value=''; } },
+                pressPin: (n) => { pinInput.value += n; if(pinInput.value === userPIN.value) { isLocked.value=false; showPinModal.value=false; } else if(pinInput.value.length >= userPIN.value.length) { alert('PIN 錯誤！'); pinInput.value=''; } },
+                bookingData, planTab, newPlan, filteredPlans: computed(() => plans.value.filter(p => p.type === planTab.value)),
+                toggleAssign: (n) => { const idx = newPlan.value.assigned.indexOf(n); if(idx>-1) newPlan.value.assigned.splice(idx,1); else newPlan.value.assigned.push(n); },
+                addPlan: () => { plans.value.unshift({ id: Date.now(), type: planTab.value, title: newPlan.value.title, assigned: [...newPlan.value.assigned], doneBy: [] }); newPlan.value = { title: '', assigned: [] }; },
+                toggleMemberDone: (p, n) => { const idx = p.doneBy.indexOf(n); if(idx>-1) p.doneBy.splice(idx,1); else p.doneBy.push(n); },
+                expSub, exRate, newExp, expenses, quickKrw, quickTwd, currentCustomTotal, customTotalDiff, toggleParticipant, saveExp,
+                filterMember, displayTotalKRW, displayTotalTWD, filteredExpensesList, isMemberSettled, toggleSettlement,
+                getAvatar: (n) => members.value.find(m => m.name === n)?.avatar || '👤',
+                removeExp: (id) => expenses.value = expenses.value.filter(e => e.id !== id),
+                fetchRate: async () => { try { const res = await fetch('https://open.er-api.com/v6/latest/KRW'); const data = await res.json(); if(data) exRate.value = data.rates.TWD; } catch(e){} },
+                openNaver: (q) => { window.location.href = `nmap://search?query=${encodeURIComponent(q)}&appname=travel.buddy`; },
+                copyText: (t) => { navigator.clipboard.writeText(t).then(() => alert('複製成功！🚕')); },
+                resetAllData: () => { if(confirm('確定清除？')) { localStorage.removeItem(STORAGE_KEY); location.reload(); } },
+                forecast, userPIN, rateLoading: ref(false),
+                syncInput, syncRoomID, connectSync
+            };
+        }
+    }).mount('#app');
+</script>
+<script type="module">
+  // Import the functions you need from the SDKs you need
+  import { initializeApp } from "https://www.gstatic.com/firebasejs/12.12.1/firebase-app.js";
+  import { getAnalytics } from "https://www.gstatic.com/firebasejs/12.12.1/firebase-analytics.js";
+  // TODO: Add SDKs for Firebase products that you want to use
+  // https://firebase.google.com/docs/web/setup#available-libraries
+
+  // Your web app's Firebase configuration
+  // For Firebase JS SDK v7.20.0 and later, measurementId is optional
+  const firebaseConfig = {
+    apiKey: "AIzaSyALLwa_zeiXG6Kh2Jh4zaD_H7RM7V20pM4",
+    authDomain: "seoul-6d49d.firebaseapp.com",
+    projectId: "seoul-6d49d",
+    storageBucket: "seoul-6d49d.firebasestorage.app",
+    messagingSenderId: "493494957988",
+    appId: "1:493494957988:web:4c7a8b6d7334254c18f331",
+    measurementId: "G-374MTW87D0"
+  };
+
+  // Initialize Firebase
+  const app = initializeApp(firebaseConfig);
+  const analytics = getAnalytics(app);
+</script>
+</body>
+</html>
